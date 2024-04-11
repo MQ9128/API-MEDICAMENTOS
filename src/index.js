@@ -4,7 +4,9 @@ const fs =require('fs')
 const nodemailer = require('nodemailer')
 const transporter = require('./mailer');
 const { readFileSync, escribirArchivo } = require('./files')
-
+const {medicamentoSchema} = require('../schemas/schema');
+const Joi = require('joi');
+const moment = require('moment');
 
 const app = express();
 const morgan = require ('morgan');
@@ -16,9 +18,26 @@ app.use(express.json());
 
 //rutas 
 app.get('/medicines', (req, res) =>{
-    const todos = readFileSync('./src/medicamentos.json')
-    res.send(todos)
+    const todos = readFileSync('./src/medicamentos.json');
+    const { keyword } = req.query;
+
+    // Si se proporcionó un query param, filtrar los registros por la palabra clave
+    if (keyword) {
+        const filteredTodos = todos.filter(todo => {
+            return Object.values(todo).some(value => {
+                if (typeof value === 'string') {
+                    return value.toLowerCase().includes(keyword.toLowerCase());
+                }
+                return false;
+            });
+        });
+        res.send(filteredTodos);
+    } else {
+        // Si no se proporciona un query param, enviar todos los registros
+        res.send(todos);
+    }
 });
+
 
 //show
 app.get('/medicines/:consecutivo', (req, res) => {
@@ -36,14 +55,22 @@ app.get('/medicines/:consecutivo', (req, res) => {
 
 //store
 app.post('/medicines', (req, res) => {
-    const todo = req.body
+    const todo = req.body;
+//validar el cuerpo
+const { error } = medicamentoSchema.validate(todo);
+    if (error) {
+        res.status(400).send(error.details[0].message);
+        return;
+
+}
+
     const todos = readFileSync('./src/medicamentos.json')
     todo.consecutivo = todos.length + 1
     todos.push(todo)
     //Escribir Archivo
     escribirArchivo('./src/medicamentos.json', todos)
     res.status(201).send(todo)
-})
+});
 
 //update
 app.put('/medicines/:consecutivo', (req, res) => {
@@ -61,6 +88,13 @@ app.put('/medicines/:consecutivo', (req, res) => {
     // Obtener el medicamento a actualizar
     let todo = todos[todoIndex];
 
+    // validar datos actualizados con JOI
+    const { error } = medicamentoSchema.validate(req.body);
+        if (error) {
+            res.status(400).send(error.details[0].message);
+            return;
+    }
+
     // Actualizar los campos del medicamento
     todo = {
         ...todo,
@@ -71,6 +105,8 @@ app.put('/medicines/:consecutivo', (req, res) => {
         descripcion_medicamento: descripcion_medicamento || todo.descripcion_medicamento,
         valor_minimo: valor_minimo || todo.valor_minimo,
         valor_maximo: valor_maximo || todo.valor_maximo,
+        // Añadir o mantener el campo updated_at
+        updated_at: todo.updated_at || moment().format('YYYY-MM-DD HH:mm'),
     };
 
     // Actualizar el medicamento en el arreglo
@@ -81,6 +117,7 @@ app.put('/medicines/:consecutivo', (req, res) => {
 
     res.send(todo);
 });
+
 
 //destroy
 app.delete('/medicines/:consecutivo', (req, res) => {
